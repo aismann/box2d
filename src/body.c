@@ -294,7 +294,6 @@ b2BodyId b2CreateBody( b2WorldId worldId, const b2BodyDef* def )
 	body->fixedRotation = def->fixedRotation;
 	body->isSpeedCapped = false;
 	body->isMarked = false;
-	body->automaticMass = def->automaticMass;
 
 	// dynamic and kinematic bodies that are enabled need a island
 	if ( setId >= b2_awakeSet )
@@ -310,6 +309,7 @@ b2BodyId b2CreateBody( b2WorldId worldId, const b2BodyDef* def )
 
 bool b2IsBodyAwake( b2World* world, b2Body* body )
 {
+	B2_MAYBE_UNUSED( world );
 	return body->setIndex == b2_awakeSet;
 }
 
@@ -1258,25 +1258,6 @@ void b2Body_ApplyMassFromShapes( b2BodyId bodyId )
 
 	b2Body* body = b2GetBodyFullId( world, bodyId );
 	b2UpdateBodyMassData( world, body );
-}
-
-void b2Body_SetAutomaticMass( b2BodyId bodyId, bool automaticMass )
-{
-	b2World* world = b2GetWorldLocked( bodyId.world0 );
-	if ( world == NULL )
-	{
-		return;
-	}
-
-	b2Body* body = b2GetBodyFullId( world, bodyId );
-	body->automaticMass = automaticMass;
-}
-
-bool b2Body_GetAutomaticMass( b2BodyId bodyId )
-{
-	b2World* world = b2GetWorld( bodyId.world0 );
-	b2Body* body = b2GetBodyFullId( world, bodyId );
-	return body->automaticMass;
 }
 
 void b2Body_SetLinearDamping( b2BodyId bodyId, float linearDamping )
