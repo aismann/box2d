@@ -1,14 +1,9 @@
 # Box2D benchmark app
 
-add_executable(benchmark
-    main.c
-    joint_grid.c
-    large_pyramid.c
-    many_pyramids.c
-    smash.c
-    spinner.c
-    tumbler.c
+set(BOX2D_BENCHMARK_FILES
+	main.c
 )
+add_executable(benchmark ${BOX2D_BENCHMARK_FILES})
 
 set_target_properties(benchmark PROPERTIES
     C_STANDARD 17
@@ -16,8 +11,10 @@ set_target_properties(benchmark PROPERTIES
     C_EXTENSIONS NO
 )
 
-if (MSVC)
-	target_compile_options(benchmark PRIVATE /experimental:c11atomics)
+if (BOX2D_COMPILE_WARNING_AS_ERROR)
+	set_target_properties(benchmark PROPERTIES COMPILE_WARNING_AS_ERROR ON)
 endif()
 
-target_link_libraries(benchmark PRIVATE box2d enkiTS)
+target_link_libraries(benchmark PRIVATE box2d shared enkiTS)
+
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "" FILES ${BOX2D_BENCHMARK_FILES})
