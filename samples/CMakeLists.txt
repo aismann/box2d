@@ -53,6 +53,8 @@ add_library(imgui STATIC
 target_link_libraries(imgui PUBLIC glfw glad)
 target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
 target_compile_definitions(imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
+# The sample app also uses stb_truetype and this keeps the symbols separate
+target_compile_definitions(imgui PRIVATE IMGUI_STB_NAMESPACE=imgui_stb)
 set_target_properties(imgui PROPERTIES
 	CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES
@@ -68,11 +70,13 @@ target_include_directories(jsmn INTERFACE ${JSMN_DIR})
 set(BOX2D_SAMPLE_FILES
 	car.cpp
 	car.h
+	container.c
+	container.h
 	donut.cpp
 	donut.h
 	doohickey.cpp
 	doohickey.h
-	draw.cpp
+	draw.c
 	draw.h
 	main.cpp
 	sample.cpp
@@ -85,15 +89,17 @@ set(BOX2D_SAMPLE_FILES
 	sample_determinism.cpp
 	sample_events.cpp
 	sample_geometry.cpp
+	sample_issues.cpp
 	sample_joints.cpp
 	sample_robustness.cpp
 	sample_shapes.cpp
 	sample_stacking.cpp
 	sample_world.cpp
-	settings.cpp
-	settings.h
-	shader.cpp
-	shader.h)
+	shader.c
+	shader.h
+	stb_image_write.h
+	stb_truetype.h
+)
 
 add_executable(samples ${BOX2D_SAMPLE_FILES})
 
