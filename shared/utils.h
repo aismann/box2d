@@ -19,6 +19,8 @@ extern "C"
 extern uint32_t g_randomSeed;
 b2Polygon RandomPolygon( float extent );
 
+int GetNumberOfCores( void );
+
 #ifdef __cplusplus
 }
 #endif
@@ -65,6 +67,15 @@ B2_INLINE float RandomFloatRange( float lo, float hi )
 B2_INLINE b2Vec2 RandomVec2( float lo, float hi )
 {
 	b2Vec2 v;
+	v.x = RandomFloatRange( lo, hi );
+	v.y = RandomFloatRange( lo, hi );
+	return v;
+}
+
+// Random position with coordinates in range [lo, hi]
+B2_INLINE b2Pos RandomPos( float lo, float hi )
+{
+	b2Pos v;
 	v.x = RandomFloatRange( lo, hi );
 	v.y = RandomFloatRange( lo, hi );
 	return v;

@@ -3,13 +3,11 @@
 
 #pragma once
 
-#include "array.h"
+#include "container.h"
 
+#include "box2d/constants.h"
 #include "box2d/math_functions.h"
 #include "box2d/types.h"
-
-// Length of body debug name
-#define B2_NAME_LENGTH 32
 
 typedef struct b2World b2World;
 
@@ -32,7 +30,7 @@ enum b2BodyFlags
 
 	// This body was speed capped in the current time step
 	b2_isSpeedCapped = 0x00000020,
-	
+
 	// This body had a time of impact event in the current time step
 	b2_hadTimeOfImpact = 0x00000040,
 
@@ -52,15 +50,23 @@ enum b2BodyFlags
 	// computation but b2Body_ApplyMassFromShapes was not called before the world step.
 	b2_dirtyMass = 0x00000400,
 
+	b2_enableSleep = 0x00000800,
+
+	b2_bodyEnableContactRecycling = 0x00001000,
+
 	// All lock flags
 	b2_allLocks = b2_lockAngularZ | b2_lockLinearX | b2_lockLinearY,
+
+	// If this flag is set then the body has fixed rotation
+	b2_fixedRotation = b2_lockAngularZ,
+
+	// These flags are transient per time step. These may be different across b2Body, b2BodySim, and b2BodyState.
+	b2_bodyTransientFlags = b2_isFast | b2_isSpeedCapped | b2_hadTimeOfImpact,
 };
 
 // Body organizational details that are not used in the solver.
 typedef struct b2Body
 {
-	char name[B2_NAME_LENGTH];
-
 	void* userData;
 
 	// index of solver set stored in b2World
@@ -88,9 +94,8 @@ typedef struct b2Body
 	// All enabled dynamic and kinematic bodies are in an island.
 	int islandId;
 
-	// doubly-linked island list
-	int islandPrev;
-	int islandNext;
+	// Need this island index for faster union-find
+	int islandIndex;
 
 	float mass;
 
@@ -99,6 +104,7 @@ typedef struct b2Body
 
 	float sleepThreshold;
 	float sleepTime;
+	float safetyFactor;
 
 	// this is used to adjust the fellAsleep flag in the body move array
 	int bodyMoveIndex;
@@ -114,8 +120,7 @@ typedef struct b2Body
 	// Used to check for invalid b2BodyId
 	uint16_t generation;
 
-	// todo move into flags
-	bool enableSleep;
+	char name[B2_NAME_LENGTH + 1];
 } b2Body;
 
 // Body State
@@ -169,15 +174,15 @@ static const b2BodyState b2_identityBodyState = { { 0.0f, 0.0f }, 0.0f, 0, { 0.0
 // Transform data used for collision and solver preparation.
 typedef struct b2BodySim
 {
-	// transform for body origin
-	b2Transform transform;
+	// transform for body origin, double translation in large world mode
+	b2WorldTransform transform;
 
 	// center of mass position in world space
-	b2Vec2 center;
+	b2Pos center;
 
 	// previous rotation and COM for TOI
 	b2Rot rotation0;
-	b2Vec2 center0;
+	b2Pos center0;
 
 	// location of center of mass relative to the body origin
 	b2Vec2 localCenter;
@@ -202,11 +207,15 @@ typedef struct b2BodySim
 	uint32_t flags;
 } b2BodySim;
 
+b2DeclareArray( b2Body );
+b2DeclareArray( b2BodySim );
+b2DeclareArray( b2BodyState );
+
 // Get a validated body from a world using an id.
 b2Body* b2GetBodyFullId( b2World* world, b2BodyId bodyId );
 
-b2Transform b2GetBodyTransformQuick( b2World* world, b2Body* body );
-b2Transform b2GetBodyTransform( b2World* world, int bodyId );
+b2WorldTransform b2GetBodyTransformQuick( b2World* world, b2Body* body );
+b2WorldTransform b2GetBodyTransform( b2World* world, int bodyId );
 
 // Create a b2BodyId from a raw id.
 b2BodyId b2MakeBodyId( b2World* world, int bodyId );
@@ -215,24 +224,23 @@ bool b2ShouldBodiesCollide( b2World* world, b2Body* bodyA, b2Body* bodyB );
 
 b2BodySim* b2GetBodySim( b2World* world, b2Body* body );
 b2BodyState* b2GetBodyState( b2World* world, b2Body* body );
+void b2RemoveBodySim( b2Array( b2BodySim ) * bodySims, b2Array( b2Body ) * bodies, int localIndex );
 
 // careful calling this because it can invalidate body, state, joint, and contact pointers
 bool b2WakeBody( b2World* world, b2Body* body );
 
 void b2UpdateBodyMassData( b2World* world, b2Body* body );
+void b2SyncBodyFlags( b2World* world, b2Body* body );
 
-static inline b2Sweep b2MakeSweep( const b2BodySim* bodySim )
+// Build a sweep relative to a base position so continuous collision keeps float precision far
+// from the origin. The base cancels out of the relative motion the TOI actually solves.
+static inline b2Sweep b2MakeRelativeSweep( const b2BodySim* bodySim, b2Pos base )
 {
 	b2Sweep s;
-	s.c1 = bodySim->center0;
-	s.c2 = bodySim->center;
+	s.c1 = b2SubPos( bodySim->center0, base );
+	s.c2 = b2SubPos( bodySim->center, base );
 	s.q1 = bodySim->rotation0;
 	s.q2 = bodySim->transform.q;
 	s.localCenter = bodySim->localCenter;
 	return s;
 }
-
-// Define inline functions for arrays
-B2_ARRAY_INLINE( b2Body, b2Body )
-B2_ARRAY_INLINE( b2BodySim, b2BodySim )
-B2_ARRAY_INLINE( b2BodyState, b2BodyState )
