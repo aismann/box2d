@@ -30,14 +30,14 @@
 
 #endif
 
-#include "atomic.h"
+#include "platform.h"
 
 // This allows the user to change the length units at runtime
-static float b2_lengthUnitsPerMeter = 1.0f;
+float b2_lengthUnitsPerMeter = 1.0f;
 
 void b2SetLengthUnitsPerMeter( float lengthUnits )
 {
-	B2_ASSERT( b2IsValidFloat( lengthUnits ) && lengthUnits > 0.0f );
+	B2_CHECK_INPUT( b2IsValidFloat( lengthUnits ) && lengthUnits > 0.0f );
 	b2_lengthUnitsPerMeter = lengthUnits;
 }
 
@@ -101,9 +101,9 @@ void b2Log( const char* format, ... )
 b2Version b2GetVersion( void )
 {
 	return (b2Version){
-		.major = 3,
-		.minor = 2,
-		.revision = 0,
+		.major = B2_VERSION_MAJOR,
+		.minor = B2_VERSION_MINOR,
+		.revision = B2_VERSION_REVISION,
 	};
 }
 
@@ -127,9 +127,6 @@ void b2SetAllocator( b2AllocFcn* allocFcn, b2FreeFcn* freeFcn )
 	b2_freeFcn = freeFcn;
 }
 
-// Use 32 byte alignment for everything. Works with 256bit SIMD.
-#define B2_ALIGNMENT 32
-
 void* b2Alloc( size_t size )
 {
 	if ( size == 0 )
@@ -137,35 +134,34 @@ void* b2Alloc( size_t size )
 		return NULL;
 	}
 
-	// This could cause some sharing issues, however Box2D rarely calls b2Alloc.
 	b2AtomicFetchAddI64( &b2_byteCount, size );
 
-	// Allocation must be a multiple of 32 or risk a seg fault
+	// Allocation must be a multiple of alignment or risk a seg fault
 	// https://en.cppreference.com/w/c/memory/aligned_alloc
-	size_t size32 = ( ( size - 1 ) | 0x1F ) + 1;
+	size_t alignedSize = ( ( size - 1 ) | ( B2_ALIGNMENT - 1 ) ) + 1;
 
 	if ( b2_allocFcn != NULL )
 	{
-		void* ptr = b2_allocFcn( size32, B2_ALIGNMENT );
+		void* ptr = b2_allocFcn( alignedSize, B2_ALIGNMENT );
 		b2TracyCAlloc( ptr, size );
 
 		B2_ASSERT( ptr != NULL );
-		B2_ASSERT( ( (uintptr_t)ptr & 0x1F ) == 0 );
+		B2_ASSERT( ( (uintptr_t)ptr & ( B2_ALIGNMENT - 1 ) ) == 0 );
 
 		return ptr;
 	}
 
 #ifdef B2_PLATFORM_WINDOWS
-	void* ptr = _aligned_malloc( size32, B2_ALIGNMENT );
+	void* ptr = _aligned_malloc( alignedSize, B2_ALIGNMENT );
 #elif defined( B2_PLATFORM_ANDROID )
 	void* ptr = NULL;
-	if ( posix_memalign( &ptr, B2_ALIGNMENT, size32 ) != 0 )
+	if ( posix_memalign( &ptr, B2_ALIGNMENT, alignedSize ) != 0 )
 	{
 		// allocation failed, exit the application
 		exit( EXIT_FAILURE );
 	}
 #else
-	void* ptr = aligned_alloc( B2_ALIGNMENT, size32 );
+	void* ptr = aligned_alloc( B2_ALIGNMENT, alignedSize );
 #endif
 
 	b2TracyCAlloc( ptr, size );
@@ -176,7 +172,7 @@ void* b2Alloc( size_t size )
 	return ptr;
 }
 
-void* b2AllocZeroInit( size_t size )
+void* b2AllocZero( size_t size )
 {
 	void* memory = b2Alloc( size );
 	memset( memory, 0, size );
@@ -194,7 +190,8 @@ void b2Free( void* mem, size_t size )
 
 	if ( b2_freeFcn != NULL )
 	{
-		b2_freeFcn( mem, size );
+		size_t alignedSize = ( ( size - 1 ) | ( B2_ALIGNMENT - 1 ) ) + 1;
+		b2_freeFcn( mem, alignedSize );
 	}
 	else
 	{
@@ -220,7 +217,7 @@ void* b2GrowAlloc( void* oldMem, size_t oldSize, size_t newSize )
 	return newMem;
 }
 
-void* b2GrowAllocZeroInit( void* oldMem, size_t oldSize, size_t newSize )
+void* b2GrowAllocZero( void* oldMem, size_t oldSize, size_t newSize )
 {
 	B2_ASSERT( newSize > oldSize );
 	void* newMem = b2Alloc( newSize );

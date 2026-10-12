@@ -32,6 +32,9 @@ typedef struct b2TaskContext
 	// Collect per thread sensor continuous hit events.
 	b2Array( b2SensorHit ) sensorHits;
 
+	// Broad-phase pairs.
+	b2Array( uint64_t ) pairKeys;
+
 	// These bits align with the contact id capacity and signal a change in contact status
 	b2BitSet contactStateBitSet;
 
@@ -111,6 +114,10 @@ typedef struct b2World
 
 	// These are sparse arrays that point into the pools above
 	b2Array( b2Shape ) shapes;
+
+	// Shape enlarged bounds (hot data split).
+	b2Array( b2AABB ) fatAABBs;
+
 	b2Array( b2ChainShape ) chainShapes;
 
 	// This is a dense array of sensor data.
@@ -162,6 +169,8 @@ typedef struct b2World
 	b2Vec2 gravity;
 	float hitEventThreshold;
 	float restitutionThreshold;
+	int restitutionIterations;
+	bool enableRestitutionPropagation;
 	float maxLinearSpeed;
 	float contactSpeed;
 	float contactHertz;
@@ -185,6 +194,7 @@ typedef struct b2World
 	void* customFilterContext;
 
 	int workerCount;
+	int simdWidth;
 	b2EnqueueTaskCallback* enqueueTaskFcn;
 	b2FinishTaskCallback* finishTaskFcn;
 	void* userTaskContext;
@@ -211,9 +221,7 @@ typedef struct b2World
 	bool enableSleep;
 	bool locked;
 	bool enableWarmStarting;
-	bool enableContactSoftening;
 	bool enableContinuous;
-	bool enableSpeculative;
 	bool inUse;
 } b2World;
 

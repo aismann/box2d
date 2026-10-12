@@ -295,7 +295,7 @@ public:
 
 		b2ChainDef chainDef = b2DefaultChainDef();
 		chainDef.points = points;
-		chainDef.count = 4;
+		chainDef.pointCount = 4;
 		chainDef.isLoop = true;
 
 		b2CreateChain( groundId, &chainDef );
@@ -413,7 +413,7 @@ public:
 
 			b2ChainDef chainDef = b2DefaultChainDef();
 			chainDef.points = points;
-			chainDef.count = count;
+			chainDef.pointCount = count;
 			chainDef.isLoop = true;
 
 			b2CreateChain( groundId, &chainDef );
@@ -706,7 +706,7 @@ public:
 
 			b2ChainDef chainDef = b2DefaultChainDef();
 			chainDef.points = points;
-			chainDef.count = 20;
+			chainDef.pointCount = 20;
 			chainDef.isLoop = true;
 			chainDef.materials = &material;
 			chainDef.materialCount = 1;
@@ -1431,7 +1431,7 @@ public:
 		m_frameCount = 1;
 	}
 
-	void Keyboard( int key ) override
+	void Keyboard( int key, int action, int mods ) override
 	{
 		switch ( key )
 		{
@@ -1456,18 +1456,12 @@ public:
 				m_continuous = !m_continuous;
 				break;
 
-			case GLFW_KEY_V:
-				Clear();
-				m_speculative = !m_speculative;
-				b2World_EnableSpeculative( m_worldId, m_speculative );
-				break;
-
 			case GLFW_KEY_S:
 				m_frameSkip = m_frameSkip > 0 ? 0 : 60;
 				break;
 
 			default:
-				Sample::Keyboard( key );
+				Sample::Keyboard( key, action, mods );
 				break;
 		}
 	}
@@ -1561,7 +1555,7 @@ public:
 
 			b2ChainDef chainDef = b2DefaultChainDef();
 			chainDef.points = vs;
-			chainDef.count = 5;
+			chainDef.pointCount = 5;
 			chainDef.isLoop = true;
 			b2CreateChain( groundId, &chainDef );
 		}
@@ -1762,7 +1756,7 @@ static int sampleWedge = RegisterSample( "Continuous", "Wedge", Wedge::Create );
 // The best way to run this sample is:
 // 1. press pause (P)
 // 2. restart (R) or press the Drop button
-// 3. then single step (O)
+// 3. then single step (.)
 // Then look at the metrics and overlap. The color of the shape gets darker when it is using
 // continuous collision detection.
 class SafetyFactor : public Sample

@@ -28,6 +28,7 @@
 
 typedef void CreateFcn( b2WorldId worldId );
 typedef float StepFcn( b2WorldId worldId, int stepCount );
+typedef void DestroyFcn( void );
 
 typedef struct Benchmark
 {
@@ -35,6 +36,9 @@ typedef struct Benchmark
 	CreateFcn* createFcn;
 	StepFcn* stepFcn;
 	int totalStepCount;
+
+	// For a benchmark that owns data outside the world
+	DestroyFcn* destroyFcn;
 } Benchmark;
 
 static void MinProfile( b2Profile* p1, const b2Profile* p2 )
@@ -157,6 +161,10 @@ int main( int argc, char** argv )
 		{ "spinner", CreateSpinner, StepSpinner, 500 },
 		{ "tumbler", CreateTumbler, NULL, 750 },
 		{ "washer", CreateWasher, NULL, 500 },
+		{ "queries", CreateQueries, StepQueries, 200 },
+		{ "tree_cast", CreateTreeCast, StepTreeCast, 200, DestroyTreeCast },
+		{ "tile_world", CreateTileWorld, StepTileWorld, 300, DestroyTileWorld },
+		{ "sleep", CreateSleep, StepSleep, 300 },
 	};
 
 	int benchmarkCount = ARRAY_COUNT( benchmarks );
@@ -180,7 +188,7 @@ int main( int argc, char** argv )
 		.solveImpulses = FLT_MAX,
 		.integratePositions = FLT_MAX,
 		.relaxImpulses = FLT_MAX,
-		.applyRestitution = FLT_MAX,
+		.restitution = FLT_MAX,
 		.storeImpulses = FLT_MAX,
 		.splitIslands = FLT_MAX,
 		.transforms = FLT_MAX,
@@ -199,13 +207,16 @@ int main( int argc, char** argv )
 	float* stepResults = malloc( maxSteps * sizeof( float ) );
 	memset( stepResults, 0, maxSteps * sizeof( float ) );
 
-	int maxThreadCount = b2MinInt(GetNumberOfCores(), B2_MAX_WORKERS);
+	int maxThreadCount = b2MinInt( GetNumberOfCores(), B2_MAX_WORKERS );
 	int runCount = 4;
 	int singleBenchmark = -1;
 	int singleWorkerCount = -1;
 	b2Counters counters = { 0 };
 	bool enableContinuous = true;
 	bool recordStepTimes = false;
+	bool fullSteps = false;
+	bool rebuildStatic = false;
+	bool sse2Fallback = false;
 
 	for ( int i = 1; i < argc; ++i )
 	{
@@ -251,6 +262,35 @@ int main( int argc, char** argv )
 		{
 			recordStepTimes = true;
 		}
+		else if ( strcmp( arg, "-f" ) == 0 || strcmp( arg, "--full" ) == 0 )
+		{
+			// Debug builds run 10 steps unless asked for the full count
+			fullSteps = true;
+		}
+		else if ( strcmp( arg, "-rs" ) == 0 || strcmp( arg, "--rebuild-static" ) == 0 )
+		{
+			// What a static rebuild is worth to a scene, timed once per run
+			rebuildStatic = true;
+			printf( "Static tree rebuilt after create\n" );
+		}
+		else if ( ( value = MatchValue( arg, "-simd=", "--simd-width=" ) ) != NULL )
+		{
+			int simdWidth = atoi( value );
+			if ( simdWidth == 4 )
+			{
+				sse2Fallback = true;
+			}
+			else if ( simdWidth != 8 )
+			{
+				printf( "The SIMD width must be 4 or 8\n" );
+				exit( 1 );
+			}
+			else if ( b2IsAVX2Available() == false )
+			{
+				printf( "This CPU does not support AVX2\n" );
+				exit( 1 );
+			}
+		}
 		else if ( strcmp( arg, "-l" ) == 0 || strcmp( arg, "--list" ) == 0 )
 		{
 			PrintBenchmarks( benchmarks, benchmarkCount );
@@ -265,6 +305,9 @@ int main( int argc, char** argv )
 					"-r, --repeats=<integer>: number of repeats (default is 4)\n"
 					"-nc, --no-continuous: disable continuous collision\n"
 					"-s, --record-steps: record step times\n"
+					"-f, --full: run the full step count in a debug build\n"
+					"-rs, --rebuild-static: rebuild the static tree after create and print the time\n"
+					"-simd, --simd-width=<4|8>: force the SSE2 path with 4, the default is 8 when the CPU has AVX2\n"
 					"-l, --list: list the registered benchmarks\n"
 					"-h, --help: print this help\n" );
 			exit( 0 );
@@ -281,6 +324,7 @@ int main( int argc, char** argv )
 	}
 
 	printf( "Starting Box2D benchmarks\n" );
+	printf( "SIMD width: %d\n", b2IsAVX2Available() && sse2Fallback == false ? 8 : 4 );
 	printf( "======================================\n" );
 
 	for ( int benchmarkIndex = 0; benchmarkIndex < benchmarkCount; ++benchmarkIndex )
@@ -290,10 +334,12 @@ int main( int argc, char** argv )
 			continue;
 		}
 
-#ifdef NDEBUG
 		int stepCount = benchmarks[benchmarkIndex].totalStepCount;
-#else
-		int stepCount = 10;
+#ifndef NDEBUG
+		if ( fullSteps == false )
+		{
+			stepCount = 10;
+		}
 #endif
 
 		Benchmark* benchmark = benchmarks + benchmarkIndex;
@@ -319,8 +365,16 @@ int main( int argc, char** argv )
 				worldDef.enableContinuous = enableContinuous;
 				worldDef.workerCount = threadCount;
 				b2WorldId worldId = b2CreateWorld( &worldDef );
+				b2World_EnableSSE2Fallback( worldId, sse2Fallback );
 
 				benchmark->createFcn( worldId );
+
+				if ( rebuildStatic )
+				{
+					uint64_t rebuildTicks = b2GetTicks();
+					b2World_RebuildStaticTree( worldId );
+					printf( "static rebuild %.3f ms\n", b2GetMilliseconds( rebuildTicks ) );
+				}
 
 				float timeStep = 1.0f / 60.0f;
 				int subStepCount = 4;
@@ -371,6 +425,11 @@ int main( int argc, char** argv )
 				}
 
 				b2DestroyWorld( worldId );
+
+				if ( benchmark->destroyFcn != NULL )
+				{
+					benchmark->destroyFcn();
+				}
 			}
 
 			if ( recordStepTimes )
@@ -386,12 +445,20 @@ int main( int argc, char** argv )
 				for ( int stepIndex = 0; stepIndex < stepCount; ++stepIndex )
 				{
 					b2Profile p = profiles[stepIndex];
-					fprintf( file, "%g %g %g %g %g %g %g\n", p.step, p.pairs, p.collide, p.constraints, p.transforms,
-							 p.refit, p.sleepIslands );
+					fprintf( file, "%g %g %g %g %g %g %g\n", p.step, p.pairs, p.collide, p.constraints, p.transforms, p.refit,
+							 p.sleepIslands );
 				}
 
 				fclose( file );
 			}
+		}
+
+		if ( benchmark->stepFcn == StepQueries || benchmark->stepFcn == StepTreeCast || benchmark->stepFcn == StepTileWorld )
+		{
+			b2TreeStats stats = benchmark->stepFcn == StepQueries	 ? GetQueryBenchmarkStats()
+								: benchmark->stepFcn == StepTreeCast ? GetTreeCastBenchmarkStats()
+																	 : GetTileWorldBenchmarkStats();
+			printf( "query visits per step: %d node, %d leaf\n", stats.nodeVisits / stepCount, stats.leafVisits / stepCount );
 		}
 
 		printf( "body %d / shape %d / contact %d / joint %d / stack %d\n", counters.bodyCount, counters.shapeCount,

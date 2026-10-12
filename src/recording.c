@@ -9,12 +9,13 @@
 
 #include "body.h"
 #include "physics_world.h"
-#include "world_snapshot.h"
+#include "snapshot.h"
 
 #include "box2d/box2d.h"
 
 #include <limits.h>
 #include <stddef.h>
+#include <stdio.h>
 
 // Buffer helpers
 
@@ -306,11 +307,13 @@ void b2RecW_CHAINDEF( b2RecBuffer* buf, b2ChainDef v )
 {
 	// userData: not preserved
 	b2RecW_U64( buf, 0u );
-	b2RecW_I32( buf, v.count );
-	for ( int i = 0; i < v.count; ++i )
+	b2RecW_I32( buf, v.pointCount );
+	for ( int i = 0; i < v.pointCount; ++i )
 	{
 		b2RecW_VEC2( buf, v.points[i] );
 	}
+	b2RecW_VEC2( buf, v.ghost1 );
+	b2RecW_VEC2( buf, v.ghost2 );
 	b2RecW_I32( buf, v.materialCount );
 	for ( int i = 0; i < v.materialCount; ++i )
 	{

@@ -13,9 +13,6 @@
 #include <stdio.h>
 #include <vector>
 
-// extern "C" int b2_toiCalls;
-// extern "C" int b2_toiHitCount;
-
 class ChainShape : public Sample
 {
 public:
@@ -76,7 +73,7 @@ public:
 			{ 51.5935059, -16.2057514 },  { 43.6559982, -10.9139996 },	{ 35.7184982, -10.9139996 }, { 27.7809982, -10.9139996 },
 			{ 21.1664963, -14.2212505 },  { 11.9059982, -16.2057514 },	{ 0, -16.2057514 },			 { -10.5835037, -14.8827496 },
 			{ -17.1980019, -13.5597477 }, { -21.1665001, -12.2370014 }, { -25.1355019, -9.5909977 }, { -31.75, -3.63799858 },
-			{ -38.3644981, 6.2840004 },	  { -42.3334999, 9.59125137 },	{ -47.625, 11.5755005 },	 { -56.885498, 12.8985004 },
+			{ -38.3644981, 6.2840004 },	  { -42.3334999, 9.59125137 },	{ -47.625, 11.5755005 },
 		};
 
 		int count = sizeof( points ) / sizeof( points[0] );
@@ -115,7 +112,7 @@ public:
 
 		b2ChainDef chainDef = b2DefaultChainDef();
 		chainDef.points = points;
-		chainDef.count = count;
+		chainDef.pointCount = count;
 		chainDef.materials = &m_material;
 		chainDef.materialCount = 1;
 		chainDef.isLoop = true;
@@ -179,7 +176,7 @@ public:
 		if ( ImGui::SliderFloat( "Friction", &m_material.friction, 0.0f, 1.0f, "%.2f" ) )
 		{
 			b2Shape_SetSurfaceMaterial( m_shapeId, &m_material );
-			b2Chain_SetSurfaceMaterial( m_chainId, &m_material, 0 );
+			b2Chain_SetAllSurfaceMaterials( m_chainId, &m_material );
 		}
 
 		if ( ImGui::SliderFloat( "Restitution", &m_material.restitution, 0.0f, 2.0f, "%.1f" ) )
@@ -919,124 +916,6 @@ public:
 
 static int sampleCustomFilter = RegisterSample( "Shapes", "Custom Filter", CustomFilter::Create );
 
-// Restitution is approximate since Box2D uses speculative collision
-class Restitution : public Sample
-{
-public:
-	enum ShapeType
-	{
-		e_circleShape = 0,
-		e_boxShape
-	};
-
-	explicit Restitution( SampleContext* context )
-		: Sample( context )
-	{
-		if ( m_context->restart == false )
-		{
-			m_context->camera.center = { 4.0f, 17.0f };
-			m_context->camera.zoom = 27.5f;
-		}
-
-		{
-			b2BodyDef bodyDef = b2DefaultBodyDef();
-			b2BodyId groundId = b2CreateBody( m_worldId, &bodyDef );
-
-			float h = 1.0f * m_count;
-			b2Segment segment = { { -h, 0.0f }, { h, 0.0f } };
-			b2ShapeDef shapeDef = b2DefaultShapeDef();
-			b2CreateSegmentShape( groundId, &shapeDef, &segment );
-		}
-
-		m_shapeType = e_circleShape;
-
-		CreateBodies();
-	}
-
-	void CreateBodies()
-	{
-		for ( int i = 0; i < m_count; ++i )
-		{
-			if ( B2_IS_NON_NULL( m_bodyIds[i] ) )
-			{
-				b2DestroyBody( m_bodyIds[i] );
-				m_bodyIds[i] = b2_nullBodyId;
-			}
-		}
-
-		b2Circle circle = {};
-		circle.radius = 0.5f;
-
-		b2Polygon box = b2MakeBox( 0.5f, 0.5f );
-
-		b2ShapeDef shapeDef = b2DefaultShapeDef();
-		shapeDef.density = 1.0f;
-		shapeDef.material.restitution = 0.0f;
-
-		b2BodyDef bodyDef = b2DefaultBodyDef();
-		bodyDef.type = b2_dynamicBody;
-
-		float dr = 1.0f / ( m_count > 1 ? m_count - 1 : 1 );
-		float x = -1.0f * ( m_count - 1 );
-		float dx = 2.0f;
-
-		for ( int i = 0; i < m_count; ++i )
-		{
-			bodyDef.position = { x, 40.0f };
-			b2BodyId bodyId = b2CreateBody( m_worldId, &bodyDef );
-
-			m_bodyIds[i] = bodyId;
-
-			if ( m_shapeType == e_circleShape )
-			{
-				b2CreateCircleShape( bodyId, &shapeDef, &circle );
-			}
-			else
-			{
-				b2CreatePolygonShape( bodyId, &shapeDef, &box );
-			}
-
-			shapeDef.material.restitution += dr;
-			x += dx;
-		}
-	}
-
-	bool DrawControls() override
-	{
-		ImGui::PushItemWidth( 6.0f * ImGui::GetFontSize() );
-
-		bool changed = false;
-		const char* shapeTypes[] = { "Circle", "Box" };
-
-		int shapeType = int( m_shapeType );
-		changed = changed || ImGui::Combo( "Shape", &shapeType, shapeTypes, IM_ARRAYSIZE( shapeTypes ) );
-		m_shapeType = ShapeType( shapeType );
-
-		ImGui::PopItemWidth();
-
-		changed = changed || ImGui::Button( "Reset" );
-
-		if ( changed )
-		{
-			CreateBodies();
-		}
-
-		return true;
-	}
-
-	static Sample* Create( SampleContext* context )
-	{
-		return new Restitution( context );
-	}
-
-	static constexpr int m_count = 40;
-
-	b2BodyId m_bodyIds[m_count] = {};
-	ShapeType m_shapeType;
-};
-
-static int sampleIndex = RegisterSample( "Shapes", "Restitution", Restitution::Create );
-
 class Friction : public Sample
 {
 public:
@@ -1146,7 +1025,7 @@ public:
 		}
 	}
 
-	void Keyboard( int key ) override
+	void Keyboard( int key, int action, int mods ) override
 	{
 		switch ( key )
 		{
@@ -1169,7 +1048,7 @@ public:
 				break;
 
 			default:
-				Sample::Keyboard( key );
+				Sample::Keyboard( key, action, mods );
 				break;
 		}
 	}
@@ -1307,7 +1186,7 @@ public:
 
 			b2ChainDef chainDef = b2DefaultChainDef();
 			chainDef.points = points;
-			chainDef.count = count;
+			chainDef.pointCount = count;
 			chainDef.isLoop = true;
 			chainDef.materials = materials;
 			chainDef.materialCount = count;
@@ -1464,7 +1343,7 @@ public:
 		}
 
 		b2BodyId bodyId = b2Shape_GetBody( m_shapeId );
-		b2Body_ApplyMassFromShapes( bodyId );
+		b2Body_UpdateMassFromShapes( bodyId );
 	}
 
 	bool DrawControls() override
@@ -1559,10 +1438,8 @@ public:
 			m_context->camera.zoom = 25.0f * 0.5f;
 		}
 
-		b2Vec2 points1[] = { { 40.0f, 1.0f },	{ 0.0f, 0.0f },	 { -40.0f, 0.0f },
-							 { -40.0f, -1.0f }, { 0.0f, -1.0f }, { 40.0f, -1.0f } };
-		b2Vec2 points2[] = { { -40.0f, -1.0f }, { 0.0f, -1.0f }, { 40.0f, -1.0f },
-							 { 40.0f, 0.0f },	{ 0.0f, 0.0f },	 { -40.0f, 0.0f } };
+		b2Vec2 points1[] = { { 0.0f, 0.0f }, { -40.0f, 0.0f }, { -40.0f, -1.0f }, { 0.0f, -1.0f } };
+		b2Vec2 points2[] = { { 0.0f, -1.0f }, { 40.0f, -1.0f }, { 40.0f, 0.0f }, { 0.0f, 0.0f } };
 
 		int count1 = std::size( points1 );
 		int count2 = std::size( points2 );
@@ -1573,7 +1450,11 @@ public:
 		{
 			b2ChainDef chainDef = b2DefaultChainDef();
 			chainDef.points = points1;
-			chainDef.count = count1;
+			chainDef.pointCount = count1;
+
+			// The other chain carries on past both ends of this one
+			chainDef.ghost1 = { 40.0f, 1.0f };
+			chainDef.ghost2 = { 40.0f, -1.0f };
 			chainDef.isLoop = false;
 			b2CreateChain( groundId, &chainDef );
 		}
@@ -1581,7 +1462,9 @@ public:
 		{
 			b2ChainDef chainDef = b2DefaultChainDef();
 			chainDef.points = points2;
-			chainDef.count = count2;
+			chainDef.pointCount = count2;
+			chainDef.ghost1 = { -40.0f, -1.0f };
+			chainDef.ghost2 = { -40.0f, 0.0f };
 			chainDef.isLoop = false;
 			b2CreateChain( groundId, &chainDef );
 		}
@@ -1896,7 +1779,7 @@ public:
 
 	void Step() override
 	{
-		if ( m_context->pause == false || m_context->singleStep == true )
+		if ( m_context->pause == false || m_context->singleStep > 0 )
 		{
 			m_referenceAngle += m_context->hertz > 0.0f ? 60.0f * B2_PI / 180.0f / m_context->hertz : 0.0f;
 			m_referenceAngle = b2UnwindAngle( m_referenceAngle );
@@ -1989,72 +1872,6 @@ public:
 };
 
 static int sampleSingleBox = RegisterSample( "Shapes", "Recreate Static", RecreateStatic::Create );
-
-class BoxRestitution : public Sample
-{
-public:
-	explicit BoxRestitution( SampleContext* context )
-		: Sample( context )
-	{
-		if ( m_context->restart == false )
-		{
-			m_context->camera.center = { 0.0f, 5.0f };
-			m_context->camera.zoom = 10.0f;
-		}
-
-		{
-			b2BodyDef bodyDef = b2DefaultBodyDef();
-			b2BodyId groundId = b2CreateBody( m_worldId, &bodyDef );
-
-			float h = 2.0f * m_count;
-			b2Segment segment = { { -h, 0.0f }, { h, 0.0f } };
-			b2ShapeDef shapeDef = b2DefaultShapeDef();
-			b2CreateSegmentShape( groundId, &shapeDef, &segment );
-		}
-
-		b2Polygon box = b2MakeBox( 0.5f, 0.5f );
-
-		b2ShapeDef shapeDef = b2DefaultShapeDef();
-		shapeDef.density = 1.0f;
-		shapeDef.material.restitution = 0.0f;
-
-		b2BodyDef bodyDef = b2DefaultBodyDef();
-		bodyDef.type = b2_dynamicBody;
-
-		float dr = 1.0f / ( m_count > 1 ? m_count - 1 : 1 );
-		float x = -1.0f * ( m_count - 1 );
-		float dx = 2.0f;
-
-		for ( int i = 0; i < m_count; ++i )
-		{
-			char buffer[32];
-			snprintf( buffer, 32, "%.2f", shapeDef.material.restitution );
-
-			bodyDef.position = { x, 1.0f };
-			bodyDef.name = buffer;
-			b2BodyId bodyId = b2CreateBody( m_worldId, &bodyDef );
-
-			b2CreatePolygonShape( bodyId, &shapeDef, &box );
-
-			bodyDef.position = { x, 4.0f };
-			bodyDef.name = buffer;
-			bodyId = b2CreateBody( m_worldId, &bodyDef );
-
-			b2CreatePolygonShape( bodyId, &shapeDef, &box );
-
-			shapeDef.material.restitution += dr;
-			x += dx;
-		}
-	}
-	static Sample* Create( SampleContext* context )
-	{
-		return new BoxRestitution( context );
-	}
-
-	static constexpr int m_count = 10;
-};
-
-static int sampleBoxRestitution = RegisterSample( "Shapes", "Box Restitution", BoxRestitution::Create );
 
 class Wind : public Sample
 {
@@ -2177,7 +1994,7 @@ public:
 
 	void Step() override
 	{
-		if ( m_context->pause == false || m_context->singleStep == true )
+		if ( m_context->pause == false || m_context->singleStep > 0 )
 		{
 			float speed;
 			b2Vec2 direction = b2GetLengthAndNormalize( &speed, m_wind );

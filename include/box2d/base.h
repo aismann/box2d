@@ -42,12 +42,31 @@
 #ifdef __cplusplus
 	#define B2_API extern "C" BOX2D_EXPORT
 	#define B2_INLINE inline
+	#define B2_ALIGN_AS(N) alignas(N)
+#if defined( _MSC_VER )
+	#define B2_FORCE_INLINE __forceinline
+#elif defined( __GNUC__ ) || defined( __clang__ )
+	#define B2_FORCE_INLINE inline __attribute__((always_inline))
+#else
+	#define B2_FORCE_INLINE inline
+#endif
+
 	#define B2_LITERAL(T) T
 	#define B2_ZERO_INIT {}
 #else
 	#define B2_API BOX2D_EXPORT
 	#define B2_INLINE static inline
-	/// Used for C literals like (b2Vec2){1.0f, 2.0f} where C++ requires b2Vec2{1.0f, 2.0f}
+	#define B2_ALIGN_AS(N) _Alignas(N)
+
+#if defined( _MSC_VER )
+	#define B2_FORCE_INLINE static __forceinline
+#elif defined( __GNUC__ ) || defined( __clang__ )
+	#define B2_FORCE_INLINE static inline __attribute__((always_inline))
+#else
+	#define B2_FORCE_INLINE static inline
+#endif
+
+	// Used for C literals like (b2Vec2){1.0f, 2.0f} where C++ requires b2Vec2{1.0f, 2.0f}
 	#define B2_LITERAL(T) (T)
 	#define B2_ZERO_INIT {0}
 #endif
@@ -110,11 +129,23 @@ typedef struct b2Version
 	int revision;
 } b2Version;
 
+/// Significant API and behavior changes.
+#define B2_VERSION_MAJOR 3
+
+/// API changes and features.
+#define B2_VERSION_MINOR 2
+
+/// Bug fixes. No API changes.
+#define B2_VERSION_REVISION 0
+
 /// Get the current version of Box2D
 B2_API b2Version b2GetVersion( void );
 
 /// @return true if the library was built with BOX2D_DOUBLE_PRECISION (large world mode)
 B2_API bool b2IsDoublePrecision( void );
+
+/// @return true if the current CPU has the AVX2 instruction set.
+B2_API bool b2IsAVX2Available( void );
 
 /**@}*/
 

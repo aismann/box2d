@@ -1,15 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Erin Catto
 // SPDX-License-Identifier: MIT
 
-#include "determinism.h"
-#include "test_macros.h"
-#include "world_snapshot.h"
-
 #include "core.h"
+#include "determinism.h"
 #include "physics_world.h"
+#include "snapshot.h"
+#include "test_macros.h"
 
 #include "box2d/box2d.h"
-#include "box2d/math_functions.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -151,14 +149,14 @@ static b2WorldId BuildScene( int workerCount, SnapshotIds* outIds )
 		cbd.position = (b2Pos){ -10.0f, 0.0f };
 		b2BodyId chainBodyId = b2CreateBody( worldId, &cbd );
 
-		b2Vec2 chainPoints[5] = {
-			{ -4.0f, 0.0f }, { -2.0f, 0.0f }, { 0.0f, 0.0f }, { 2.0f, 0.0f }, { 4.0f, 2.0f }
-		};
+		b2Vec2 chainPoints[3] = { { -2.0f, 0.0f }, { 0.0f, 0.0f }, { 2.0f, 0.0f } };
 		b2SurfaceMaterial chainMat = b2DefaultSurfaceMaterial();
 		chainMat.friction = 0.4f;
 		b2ChainDef chainDef = b2DefaultChainDef();
 		chainDef.points = chainPoints;
-		chainDef.count = 5;
+		chainDef.pointCount = 3;
+		chainDef.ghost1 = (b2Vec2){ -4.0f, 0.0f };
+		chainDef.ghost2 = (b2Vec2){ 4.0f, 2.0f };
 		chainDef.materials = &chainMat;
 		chainDef.materialCount = 1;
 		chainDef.isLoop = false;
@@ -190,6 +188,19 @@ static b2WorldId BuildScene( int workerCount, SnapshotIds* outIds )
 			b2BodyId bodyId = b2CreateBody( worldId, &bd );
 			b2CreatePolygonShape( bodyId, &sd, &box );
 		}
+	}
+
+	// A destroyed static shape leaves a free pair in the static tree. Nothing rebuilds the
+	// static tree on its own, so the hole is still there at every snapshot below.
+	{
+		b2BodyDef bd = b2DefaultBodyDef();
+		bd.position = (b2Pos){ -30.0f, 10.0f };
+		b2BodyId scrapId = b2CreateBody( worldId, &bd );
+
+		b2Polygon scrapBox = b2MakeBox( 0.5f, 0.5f );
+		b2ShapeDef sd = b2DefaultShapeDef();
+		b2CreatePolygonShape( scrapId, &sd, &scrapBox );
+		b2DestroyBody( scrapId );
 	}
 
 	if ( outIds != NULL )
@@ -235,6 +246,9 @@ int SnapshotTest( void )
 	// The sleeping-set path (sets beyond the initial 3) must be exercised
 	ENSURE( worldA->solverSets.count > 3 );
 
+	// The free pair image only round trips if a tree actually has a hole
+	ENSURE( worldA->broadPhase.trees[b2_staticBody].pairFreeList != B2_NULL_INDEX );
+
 	// Serialize worldA
 	b2RecBuffer buf = { 0 };
 	b2SerializeWorld( worldA, &buf );
@@ -255,6 +269,22 @@ int SnapshotTest( void )
 	uint64_t deepB0 = b2HashWorldStateDeep( worldB );
 	ENSURE( deepA0 == deepB0 );
 
+	// Free pairs are chained through the parent index of their first node, so a broken
+	// restore shows up here and not in the hashes, which never read tree nodes
+	for ( int treeType = 0; treeType < b2_bodyTypeCount; ++treeType )
+	{
+		const b2DynamicTree* treeA = worldA->broadPhase.trees + treeType;
+		const b2DynamicTree* treeB = worldB->broadPhase.trees + treeType;
+		ENSURE( treeA->nodeEnd == treeB->nodeEnd );
+		ENSURE( treeA->pairFreeList == treeB->pairFreeList );
+
+		for ( int pair = treeA->pairFreeList; pair != B2_NULL_INDEX; pair = treeA->parents[pair] )
+		{
+			ENSURE( treeA->parents[pair] == treeB->parents[pair] );
+			ENSURE( treeA->parents[pair + 1] == treeB->parents[pair + 1] );
+		}
+	}
+
 	// Phase 3: lockstep worldA vs worldB for 120 steps, assert both hashes match each step
 	float dt = 1.0f / 60.0f;
 	int subSteps = 4;
@@ -267,8 +297,8 @@ int SnapshotTest( void )
 		uint64_t sB = b2HashWorldState( worldB );
 		if ( sA != sB )
 		{
-			printf( "shallow hash mismatch at lockstep step %d (A=%llu B=%llu)\n", step,
-					(unsigned long long)sA, (unsigned long long)sB );
+			printf( "shallow hash mismatch at lockstep step %d (A=%llu B=%llu)\n", step, (unsigned long long)sA,
+					(unsigned long long)sB );
 			ENSURE( false );
 		}
 
@@ -276,8 +306,8 @@ int SnapshotTest( void )
 		uint64_t dB = b2HashWorldStateDeep( worldB );
 		if ( dA != dB )
 		{
-			printf( "deep hash mismatch at lockstep step %d (A=%llu B=%llu)\n", step,
-					(unsigned long long)dA, (unsigned long long)dB );
+			printf( "deep hash mismatch at lockstep step %d (A=%llu B=%llu)\n", step, (unsigned long long)dA,
+					(unsigned long long)dB );
 			ENSURE( false );
 		}
 	}
@@ -307,8 +337,8 @@ int SnapshotTest( void )
 		uint64_t sC = b2HashWorldState( worldC );
 		if ( sA1 != sC )
 		{
-			printf( "one vs four worker hash mismatch at step %d (1w=%llu 4w=%llu)\n", step,
-					(unsigned long long)sA1, (unsigned long long)sC );
+			printf( "one vs four worker hash mismatch at step %d (1w=%llu 4w=%llu)\n", step, (unsigned long long)sA1,
+					(unsigned long long)sC );
 			ENSURE( false );
 		}
 	}
@@ -320,10 +350,10 @@ int SnapshotTest( void )
 	b2World* rWorld = b2GetWorldFromId( rId );
 
 	// Producer: size query, then fill a caller-owned buffer
-	int imageSize = b2World_Snapshot( rId, NULL, 0 );
+	int imageSize = b2World_GetSnapshot( rId, NULL, 0 );
 	ENSURE( imageSize > 0 );
 	uint8_t* image = b2Alloc( imageSize );
-	int written = b2World_Snapshot( rId, image, imageSize );
+	int written = b2World_GetSnapshot( rId, image, imageSize );
 	ENSURE( written == imageSize );
 
 	uint64_t snapHash = b2HashWorldStateDeep( rWorld );
@@ -365,6 +395,34 @@ int SnapshotTest( void )
 	ENSURE( b2World_Restore( rId, corrupt, imageSize ) == false );
 	ENSURE( b2HashWorldStateDeep( rWorld ) == preBadHash );
 	b2Free( corrupt, imageSize );
+
+	// The node capacity in the image is only an allocation hint. A huge one must not drive the
+	// allocation, the live nodes bound it. Find the static tree record by the fields that survive
+	// a restore exactly, the capacity itself may have been clamped.
+	const b2DynamicTree* staticTree = rWorld->broadPhase.trees + b2_staticBody;
+	int32_t treeHead = (int32_t)staticTree->nodeEnd;
+	int32_t treeTail[5] = { (int32_t)staticTree->pairFreeList, (int32_t)staticTree->proxyCount,
+							(int32_t)staticTree->proxyCapacity, (int32_t)staticTree->proxyFreeList,
+							staticTree->dfsOrdered ? 1 : 0 };
+	int treeOffset = -1;
+	for ( int i = 0; i + 28 <= imageSize; ++i )
+	{
+		if ( memcmp( image + i, &treeHead, 4 ) == 0 && memcmp( image + i + 8, treeTail, 20 ) == 0 )
+		{
+			treeOffset = i;
+			break;
+		}
+	}
+	ENSURE( treeOffset >= 0 );
+
+	uint8_t* greedy = b2Alloc( imageSize );
+	memcpy( greedy, image, imageSize );
+	int32_t hugeCapacity = INT32_MAX / 64;
+	memcpy( greedy + treeOffset + 4, &hugeCapacity, 4 );
+	ENSURE( b2World_Restore( rId, greedy, imageSize ) );
+	ENSURE( b2HashWorldStateDeep( rWorld ) == snapHash );
+	ENSURE( staticTree->nodeCapacity <= 2 * staticTree->nodeEnd );
+	b2Free( greedy, imageSize );
 
 	// Repeated in-place restore over the chain/sensor/island heap must not leak
 	for ( int i = 0; i < 3; ++i )
@@ -433,32 +491,32 @@ int SnapshotTest( void )
 		b2DestroyRecording( loaded );
 
 		// The player opens the recording and the replay world id is stable across a restart
-		b2RecPlayer* player = b2RecPlayer_Create( recData, recSize, 0 );
+		b2Replay* player = b2CreateReplay( recData, recSize, 0 );
 		ENSURE( player != NULL );
-		b2WorldId pid0 = b2RecPlayer_GetWorldId( player );
+		b2WorldId pid0 = b2Replay_GetWorldId( player );
 
 		int frames = 0;
-		while ( b2RecPlayer_StepFrame( player ) )
+		while ( b2Replay_StepFrame( player ) )
 		{
 			frames += 1;
 		}
 		ENSURE( frames == 60 );
-		ENSURE( b2RecPlayer_HasDiverged( player ) == false );
+		ENSURE( b2Replay_HasDiverged( player ) == false );
 
-		b2RecPlayer_Restart( player );
-		b2WorldId pid1 = b2RecPlayer_GetWorldId( player );
+		b2Replay_Restart( player );
+		b2WorldId pid1 = b2Replay_GetWorldId( player );
 		ENSURE( pid0.index1 == pid1.index1 && pid0.generation == pid1.generation );
-		ENSURE( b2RecPlayer_GetFrame( player ) == 0 );
+		ENSURE( b2Replay_GetFrame( player ) == 0 );
 
 		int frames2 = 0;
-		while ( b2RecPlayer_StepFrame( player ) )
+		while ( b2Replay_StepFrame( player ) )
 		{
 			frames2 += 1;
 		}
 		ENSURE( frames2 == 60 );
-		ENSURE( b2RecPlayer_HasDiverged( player ) == false );
+		ENSURE( b2Replay_HasDiverged( player ) == false );
 
-		b2RecPlayer_Destroy( player );
+		b2DestroyReplay( player );
 		b2DestroyRecording( rec );
 	}
 
@@ -473,9 +531,9 @@ int SnapshotTest( void )
 			b2World_Step( wId, dt, subSteps );
 		}
 
-		int snapSize = b2World_Snapshot( wId, NULL, 0 );
+		int snapSize = b2World_GetSnapshot( wId, NULL, 0 );
 		uint8_t* snap = b2Alloc( snapSize );
-		b2World_Snapshot( wId, snap, snapSize );
+		b2World_GetSnapshot( wId, snap, snapSize );
 
 		b2World* origin = b2GetWorldFromId( wId );
 
@@ -533,18 +591,18 @@ int SnapshotTest( void )
 		b2World_StopRecording( wId );
 		b2DestroyWorld( wId );
 
-		b2RecPlayer* player = b2RecPlayer_Create( b2Recording_GetData( rec ), b2Recording_GetSize( rec ), 0 );
+		b2Replay* player = b2CreateReplay( b2Recording_GetData( rec ), b2Recording_GetSize( rec ), 0 );
 		ENSURE( player != NULL );
-		b2WorldId pid0 = b2RecPlayer_GetWorldId( player );
+		b2WorldId pid0 = b2Replay_GetWorldId( player );
 		for ( int i = 0; i < 5; ++i )
 		{
-			b2RecPlayer_StepFrame( player );
+			b2Replay_StepFrame( player );
 		}
-		b2RecPlayer_Restart( player );
-		b2WorldId pid1 = b2RecPlayer_GetWorldId( player );
+		b2Replay_Restart( player );
+		b2WorldId pid1 = b2Replay_GetWorldId( player );
 		ENSURE( pid0.index1 == pid1.index1 && pid0.generation == pid1.generation );
-		ENSURE( b2RecPlayer_GetFrame( player ) == 0 );
-		b2RecPlayer_Destroy( player );
+		ENSURE( b2Replay_GetFrame( player ) == 0 );
+		b2DestroyReplay( player );
 		b2DestroyRecording( rec );
 	}
 
@@ -582,9 +640,9 @@ int SnapshotTest( void )
 		// The public state hash accessor must match the internal deep hash
 		ENSURE( b2World_GetStateHash( wId ) == b2HashWorldStateDeep( w ) );
 
-		int snapSize = b2World_Snapshot( wId, NULL, 0 );
+		int snapSize = b2World_GetSnapshot( wId, NULL, 0 );
 		uint8_t* snap = b2Alloc( snapSize );
-		b2World_Snapshot( wId, snap, snapSize );
+		b2World_GetSnapshot( wId, snap, snapSize );
 
 		// Disabling the resting box destroys its touching contact and queues an end event,
 		// exactly the between-step mutation a rollback would discard

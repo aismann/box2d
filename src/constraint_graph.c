@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Erin Catto
+// SPDX-FileCopyrightText: 2026 Erin Catto
 // SPDX-License-Identifier: MIT
 
 #include "constraint_graph.h"
@@ -23,6 +23,7 @@
 // todo should be possible to branch on the scatters to avoid writing to kinematic bodies
 
 // This is used for debugging by making all constraints be assigned to overflow.
+// Don't expect the same result for overflow and graph colored. They have a different solve order.
 #define B2_FORCE_OVERFLOW 0
 
 void b2CreateGraph( b2ConstraintGraph* graph, const b2Capacity* capacity )
@@ -144,7 +145,7 @@ void b2AddContactToGraph( b2World* world, b2ContactSim* contactSim, b2Contact* c
 
 	if ( typeA == b2_staticBody )
 	{
-		newContact->bodySimIndexA = B2_NULL_INDEX;
+		newContact->encodedBodySimA = b2EncodeBodySimIndex( bodyA );
 		newContact->invMassA = 0.0f;
 		newContact->invIA = 0.0f;
 	}
@@ -154,7 +155,7 @@ void b2AddContactToGraph( b2World* world, b2ContactSim* contactSim, b2Contact* c
 		b2SolverSet* awakeSet = b2Array_Get( world->solverSets, b2_awakeSet );
 
 		int localIndex = bodyA->localIndex;
-		newContact->bodySimIndexA = localIndex;
+		newContact->encodedBodySimA = localIndex;
 
 		b2BodySim* bodySimA = b2Array_Get( awakeSet->bodySims, localIndex );
 		newContact->invMassA = bodySimA->invMass;
@@ -163,7 +164,7 @@ void b2AddContactToGraph( b2World* world, b2ContactSim* contactSim, b2Contact* c
 
 	if ( typeB == b2_staticBody )
 	{
-		newContact->bodySimIndexB = B2_NULL_INDEX;
+		newContact->encodedBodySimB = b2EncodeBodySimIndex( bodyB );
 		newContact->invMassB = 0.0f;
 		newContact->invIB = 0.0f;
 	}
@@ -173,7 +174,7 @@ void b2AddContactToGraph( b2World* world, b2ContactSim* contactSim, b2Contact* c
 		b2SolverSet* awakeSet = b2Array_Get( world->solverSets, b2_awakeSet );
 
 		int localIndex = bodyB->localIndex;
-		newContact->bodySimIndexB = localIndex;
+		newContact->encodedBodySimB = localIndex;
 
 		b2BodySim* bodySimB = b2Array_Get( awakeSet->bodySims, localIndex );
 		newContact->invMassB = bodySimB->invMass;
