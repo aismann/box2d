@@ -2,46 +2,30 @@ const std = @import("std");
 const Build = std.Build;
 const Compile = Build.Step.Compile;
 const ResolvedTarget = Build.ResolvedTarget;
+const Module = Build.Module;
 const OptimizeMode = std.builtin.OptimizeMode;
-const builtin = @import("builtin");
 
-const min_supported_ver = "0.15.1";
-comptime {
-    const order = std.SemanticVersion.order;
-    const parse = std.SemanticVersion.parse;
-    if (order(builtin.zig_version, parse(min_supported_ver) catch unreachable) == .lt)
-        @compileError("Box2d requires zig version " ++ min_supported_ver);
-}
+const Translator = @import("translate_c").Translator;
 
 pub const Options = struct {
     shared: bool,
-    unit_tests: bool,
+    c_unit_tests: bool,
+    zig_unit_tests: bool,
     disable_simd: bool,
-    avx2: bool,
 
     const defaults = Options{
         .shared = false,
-        .unit_tests = false,
+        .c_unit_tests = false,
+        .zig_unit_tests = false,
         .disable_simd = false,
-        .avx2 = true,
     };
 
-    pub fn getOptions(b: *Build, target: ResolvedTarget) Options {
-        const disable_simd = b.option(bool, "disable_simd", "Disable SIMD math (slower)") orelse defaults.disable_simd;
-
-        const avx2 = avx2_option_blk: {
-            if (target.result.cpu.arch.isX86() and !disable_simd) {
-                break :avx2_option_blk b.option(bool, "avx2", "Compile AVX2 kernels, selected at runtime on x86 CPUs that support them") orelse defaults.avx2;
-            }
-
-            break :avx2_option_blk false;
-        };
-
+    pub fn getOptions(b: *Build) Options {
         return .{
             .shared = b.option(bool, "shared", "Compile as shared library") orelse defaults.shared,
-            .unit_tests = b.option(bool, "unit_tests", "Compile unit tests") orelse defaults.unit_tests,
-            .disable_simd = disable_simd,
-            .avx2 = avx2,
+            .c_unit_tests = b.option(bool, "c_unit_tests", "Compile the c unit tests") orelse defaults.c_unit_tests,
+            .zig_unit_tests = b.option(bool, "zig_unit_tests", "Compile the zig unit tests") orelse defaults.zig_unit_tests,
+            .disable_simd = b.option(bool, "disable_simd", "Disable SIMD math (slower)") orelse defaults.disable_simd,
         };
     }
 };
@@ -49,23 +33,32 @@ pub const Options = struct {
 pub fn build(b: *Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const options = Options.getOptions(b, target);
+    const options = Options.getOptions(b);
     const lib = try compileBox2d(b, target, optimize, options);
-
-    // Translate the box2d headers and export them as a module
-    const translate_c = b.addTranslateC(.{
-        .root_source_file = b.path("include/box2d/box2d.h"),
-        .target = target,
-        .optimize = optimize,
-    });
-    translate_c.addIncludePath(b.path("include"));
-    const translate_module = translate_c.addModule("box2d");
-    translate_module.linkLibrary(lib);
 
     b.installArtifact(lib);
 
-    if (options.unit_tests) {
-        buildTests(b, target, optimize, lib);
+    if (options.c_unit_tests) {
+        buildCTests(b, target, optimize, lib);
+    }
+
+    // Translate the box2d headers and export them as a module
+    const translate_c = b.dependency("translate_c", .{});
+    const translator: Translator = .init(translate_c, .{
+        .name = "translate_box2d",
+        .c_source_file = b.path("include/box2d/box2d.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    translator.addIncludePath(b.path("include"));
+
+    const box2d_mod = b.addModule("box2d", .{
+        .root_source_file = translator.output_file,
+    });
+    box2d_mod.linkLibrary(lib);
+
+    if (options.zig_unit_tests) {
+        buildZigTest(b, target, optimize, box2d_mod);
     }
 }
 
@@ -102,10 +95,6 @@ fn compileBox2d(b: *Build, target: ResolvedTarget, optimize: OptimizeMode, optio
             "-msimd128",
             "-msse2",
         });
-    }
-
-    if (!options.avx2) {
-        module.addCMacro("BOX2D_DISABLE_AVX2", "");
     }
 
     const linkage: std.builtin.LinkMode = if (options.shared) .dynamic else .static;
@@ -173,7 +162,7 @@ fn compileBox2d(b: *Build, target: ResolvedTarget, optimize: OptimizeMode, optio
     return box2d;
 }
 
-fn buildTests(b: *Build, target: ResolvedTarget, optimize: OptimizeMode, box2d_lib: *Compile) void {
+fn buildCTests(b: *Build, target: ResolvedTarget, optimize: OptimizeMode, box2d_lib: *Compile) void {
     const test_module = b.createModule(.{
         .target = target,
         .optimize = optimize,
@@ -198,6 +187,7 @@ fn buildTests(b: *Build, target: ResolvedTarget, optimize: OptimizeMode, box2d_l
             "test/test_restitution.c",
             "test/test_shape.c",
             "test/test_snapshot.c",
+            "test/test_sort.c",
             "test/test_table.c",
             "test/test_thread.c",
             "test/test_world.c",
@@ -243,7 +233,7 @@ fn buildTests(b: *Build, target: ResolvedTarget, optimize: OptimizeMode, box2d_l
     shared_module.linkLibrary(box2d_lib);
 
     const test_exe = b.addExecutable(.{
-        .name = "test",
+        .name = "c_test",
         .root_module = test_module,
     });
 
@@ -251,4 +241,22 @@ fn buildTests(b: *Build, target: ResolvedTarget, optimize: OptimizeMode, box2d_l
     test_module.linkLibrary(shared_lib);
 
     b.installArtifact(test_exe);
+}
+
+// Build a simple zig test to validate that translate_c works as expected
+fn buildZigTest(b: *Build, target: ResolvedTarget, optimize: OptimizeMode, box2d_mod: *Module) void {
+    const mod = b.createModule(.{
+        .root_source_file = b.path("test/zig/test_world.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    mod.addImport("box2d", box2d_mod);
+
+    const zig_test = b.addTest(.{
+        .name = "zig_test",
+        .root_module = mod,
+    });
+
+    b.installArtifact(zig_test);
 }

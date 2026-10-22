@@ -876,7 +876,7 @@ b2LocalManifold b2CollidePolygons( const b2Polygon* polygonA, const b2Polygon* p
 		b2Vec2 v21 = localPolyB.vertices[i21];
 		b2Vec2 v22 = localPolyB.vertices[i22];
 
-		b2SegmentDistanceResult result = b2SegmentDistance( v11, v12, v21, v22 );
+		b2SegmentDistanceResult result = b2ComputeSegmentDistance( v11, v12, v21, v22 );
 		B2_ASSERT( result.distanceSquared > 0.0f );
 		float distance = sqrtf( result.distanceSquared );
 		float separation = distance - radius;
@@ -981,7 +981,7 @@ b2LocalManifold b2CollidePolygons( const b2Polygon* polygonA, const b2Polygon* p
 		b2Vec2 v21 = localPolyB.vertices[i21];
 		b2Vec2 v22 = localPolyB.vertices[i22];
 
-		b2SegmentDistanceResult result = b2SegmentDistance( v11, v12, v21, v22 );
+		b2SegmentDistanceResult result = b2ComputeSegmentDistance( v11, v12, v21, v22 );
 
 		if ( result.fraction1 == 0.0f && result.fraction2 == 0.0f )
 		{
@@ -1396,7 +1396,7 @@ b2LocalManifold b2CollideChainSegmentAndPolygon( const b2ChainSegment* segmentA,
 	input.transform = b2Transform_identity;
 	input.useRadii = false;
 
-	b2DistanceOutput output = b2ShapeDistance( &input, cache, NULL, 0 );
+	b2DistanceOutput output = b2ComputeShapeDistance( &input, cache, NULL, 0 );
 
 	if ( output.distance > radiusB + B2_SPECULATIVE_DISTANCE )
 	{
@@ -1691,13 +1691,15 @@ b2LocalManifold b2CollideChainSegmentAndPolygon( const b2ChainSegment* segmentA,
 		float d2 = b2Dot( normal1, normals[i2] );
 		if ( d1 < d2 )
 		{
-			ib1 = i1, ib2 = i2;
+			ib1 = i1;
+			ib2 = i2;
 			b1 = vertices[ib1];
 			b2 = vertices[ib2];
 		}
 		else
 		{
-			ib1 = i2, ib2 = i2 < count - 1 ? i2 + 1 : 0;
+			ib1 = i2;
+			ib2 = i2 < count - 1 ? i2 + 1 : 0;
 			b1 = vertices[ib1];
 			b2 = vertices[ib2];
 		}

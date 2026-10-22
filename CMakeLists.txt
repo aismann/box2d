@@ -1,5 +1,4 @@
 ﻿cmake_minimum_required(VERSION 3.22)
-include(CMakeDependentOption)
 
 project(box2d
 	VERSION 3.2.0
@@ -66,10 +65,6 @@ option(BOX2D_DISABLE_SIMD "Disable SIMD math (slower)" OFF)
 option(BOX2D_COMPILE_WARNING_AS_ERROR "Compile warnings as errors" OFF)
 option(BOX2D_DOUBLE_PRECISION "Enable double precision for large worlds" OFF)
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
-	cmake_dependent_option(BOX2D_AVX2 "Compile AVX2 kernels, selected at runtime on x86 CPUs that support them" ON "NOT BOX2D_DISABLE_SIMD" OFF)
-endif()
-
 # core.h selects the SIMD path from these definitions and dynamic_tree.h carries inline
 # SIMD code, so the unit tests, which include the src headers, must compile with the same
 # definitions and instruction set flags as the library. Selected once here for both.
@@ -81,9 +76,6 @@ if (BOX2D_DISABLE_SIMD)
 elseif (EMSCRIPTEN)
 	# core.h maps wasm onto the SSE2 path, the intrinsics only compile with simd128 enabled
 	set(BOX2D_SIMD_OPTIONS -msimd128 -msse2)
-elseif (NOT BOX2D_AVX2)
-	message(STATUS "Box2D AVX2 disabled")
-	set(BOX2D_SIMD_DEFINITIONS BOX2D_DISABLE_AVX2)
 endif()
 
 # These are read by the library build, so they must precede add_subdirectory(src),
@@ -112,6 +104,13 @@ if (EMSCRIPTEN AND PROJECT_IS_TOP_LEVEL)
 	string(APPEND CMAKE_EXE_LINKER_FLAGS " ${EMSCRIPTEN_PTHREADS_LINKER_FLAGS}")
 endif()
 
+# Needed for samples.exe to find box2d.dll. Must precede add_subdirectory(src) because
+# a target reads these when it is created.
+if(PROJECT_IS_TOP_LEVEL)
+	set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
+	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
+endif()
+
 add_subdirectory(src)
 
 # This hides samples, test, and doxygen from apps that use box2d via FetchContent
@@ -120,10 +119,6 @@ if(PROJECT_IS_TOP_LEVEL)
 	option(BOX2D_BENCHMARKS "Build the Box2D benchmarks" OFF)
 	option(BOX2D_DOCS "Build the Box2D documentation" OFF)
 	option(BOX2D_UNIT_TESTS "Build the Box2D unit tests" ON)
-	
-	# Needed for samples.exe to find box2d.dll
-	set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
-	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
 
 	if(BOX2D_UNIT_TESTS OR BOX2D_SAMPLES OR BOX2D_BENCHMARKS)
 		add_subdirectory(shared)

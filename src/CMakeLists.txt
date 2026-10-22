@@ -48,7 +48,6 @@ set(BOX2D_SOURCE_FILES
 	platform.h
 	pogo_joint.c
 	prismatic_joint.c
-	qsort.h
 	recording_ops.inl
 	recording.c
 	recording.h
@@ -123,13 +122,13 @@ endif()
 
 if (BOX2D_PROFILE)
     target_compile_definitions(box2d PRIVATE BOX2D_PROFILE)
-    set(TRACY_DELAYED_INIT ON CACHE BOOL "Enable delayed init for Tracy" FORCE)
+    set(TRACY_ENABLE ON CACHE BOOL "Enable profiling" FORCE)
     set(TRACY_MANUAL_LIFETIME ON CACHE BOOL "Enable manual lifetime for Tracy" FORCE)
 
     FetchContent_Declare(
         tracy
         GIT_REPOSITORY https://github.com/wolfpld/tracy.git
-        GIT_TAG v0.13.1
+        GIT_TAG v0.14.1
         GIT_SHALLOW TRUE
         GIT_PROGRESS TRUE
     )
@@ -184,7 +183,7 @@ if (MSVC)
 		target_compile_options(box2d PRIVATE /Wall /wd4820 /wd5045 /wd4061 /wd4711 /wd4710)
 	endif()
 
-	if (BOX2D_AVX2 AND NOT CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_COMPILER_ARCHITECTURE_ID MATCHES "^(x64|X86)$")
+	if (NOT BOX2D_DISABLE_SIMD AND NOT CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_COMPILER_ARCHITECTURE_ID MATCHES "^(x64|X86)$")
 		set_source_files_properties(contact_solver_w8.c PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
 	endif()
 
